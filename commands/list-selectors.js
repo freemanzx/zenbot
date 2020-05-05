@@ -5,8 +5,8 @@ var colors = require('colors'),
 module.exports = function (program) {
 
   function printExchangeDetails(exchange, asset) {
-    var allPproducts = require(`../extensions/exchanges/${exchange}/products.json`)
-    let products = asset !== undefined ? allPproducts.filter((pair) => { return pair.asset === asset; }) : allPproducts;
+    var allProducts = require(`../extensions/exchanges/${exchange}/products.json`)
+    let products = asset !== undefined ? allProducts.filter((pair) => { return pair.asset === asset; }) : allProducts;
     if (products.length) {
       products.sort(function (a, b) {
         if (a.asset < b.asset) return -1
@@ -15,7 +15,6 @@ module.exports = function (program) {
         if (a.currency > b.currency) return 1
         return 0
       })
-  
       console.log(`${exchange}:`)
       products.forEach(function (p) {
         console.log('  ' + exchange.cyan + '.'.grey + p.asset.green + '-'.grey + p.currency.cyan + (p.label ? ('   (' + p.label + ')').grey : ''))
