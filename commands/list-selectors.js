@@ -24,8 +24,8 @@ module.exports = function (program) {
   
   program
     .command('list-selectors')
-    .option('-e, --exchange <exchange>', 'Select single exchange')
-    .option('-a, --asset <asset>', 'Select single asset')
+    .option('-e, --exchange <name>', 'Display single exchange')
+    .option('-a, --asset <name>', 'Display single asset')
     .description('list available selectors')
     .action((cmdObj) => {
       if (cmdObj.exchange !== undefined) {
