@@ -128,9 +128,9 @@ module.exports = function (program, conf) {
               process.exit(0)
             }
             else {
-              // Reattempt for two hours, every 1 minute
-              if (get_trade_retry_count < 120) {
-                const delay = tb('m', 1).resize('ms').value
+              // Reattempt for two hours, every 10 seconds
+              if (get_trade_retry_count < 720) {
+                const delay = tb('s', 10).resize('ms').value
 
                 get_trade_retry_count++
                 get_trade_retry_later += delay;
