@@ -13,17 +13,24 @@ module.exports = function (program, conf) {
     .option('--start <unix_in_ms>', 'lower bound as unix time in ms', Number, -1)
     .option('--end <unix_in_ms>', 'upper bound as unix time in ms', Number, -1)
     .action(function (selector, cmd) {
+
+      // Convert selector string (like: binance.ADA-USDT) to an object
+      // {exchange_id: [exchange identifier], product_id: [pair symbol], asset: [asset], currency: [currency], normalized: [full text]}
       selector = objectifySelector(selector || conf.selector)
+
+      // Load exchange module
       var exchange = require(`../extensions/exchanges/${selector.exchange_id}/exchange`)(conf)
       if (!exchange) {
         console.error('cannot backfill ' + selector.normalized + ': exchange not implemented')
         process.exit(1)
       }
 
+      // Initialize MongoDB Collection Service 
       var collectionServiceInstance = collectionService(conf)
-      var tradesCollection = collectionServiceInstance.getTrades()
-      var resume_markers = collectionServiceInstance.getResumeMarkers()
+      var tradesDb = collectionServiceInstance.getTrades()
+      var resumeMarkersDb = collectionServiceInstance.getResumeMarkers()
 
+      // Create "resume_markers" collection record structure
       var marker = {
         id: crypto.randomBytes(4).toString('hex'),
         selector: selector.normalized,
@@ -32,6 +39,7 @@ module.exports = function (program, conf) {
         oldest_time: null,
         newest_time: null
       }
+
       marker._id = marker.id
       var trade_counter = 0
       var day_trade_counter = 0
@@ -42,13 +50,18 @@ module.exports = function (program, conf) {
       var last_batch_id, last_batch_opts
       var offset = exchange.offset
       var markers, trades
+
+      // Check history backfill echange support       
       if (!mode) {
         console.error('cannot backfill ' + selector.normalized + ': exchange does not offer historical data')
         process.exit(0)
       }
+
+      // Initialize start_time and target_time time stamps, according to -d, --days <days> or --start <unix_in_ms>, --end <unix_in_ms> arguments
       if (mode === 'backward') {
         target_time = new Date().getTime() - (86400000 * cmd.days)
       }
+      // mode === 'forward'
       else {
         if(cmd.start >= 0 && cmd.end >= 0){
           start_time = cmd.start
@@ -58,13 +71,16 @@ module.exports = function (program, conf) {
           start_time = new Date().getTime() - (86400000 * cmd.days)
         }
       }
-      resume_markers.find({selector: selector.normalized}).toArray(function (err, results) {
+      
+      // Retrieve all "resume_markers" records for given selector (like: binance.ADA-USDT) and sort it
+      resumeMarkersDb.find({selector: selector.normalized}).toArray(function (err, results) {
         if (err) throw err
         markers = results.sort(function (a, b) {
           if (mode === 'backward') {
             if (a.to > b.to) return -1
             if (a.to < b.to) return 1
           }
+          // mode === 'forward'
           else {
             if (a.from < b.from) return -1
             if (a.from > b.from) return 1
@@ -79,6 +95,7 @@ module.exports = function (program, conf) {
         if (mode === 'backward') {
           opts.to = marker.from
         }
+        // mode === 'forward'
         else {
           if (marker.to) opts.from = marker.to + 1
           else opts.from = exchange.getCursor(start_time)
@@ -101,15 +118,24 @@ module.exports = function (program, conf) {
             process.exit(1)
           }
           if (mode !== 'backward' && !trades.length) {
-            if (trade_counter) {
+            // Finish trades backfill if: 
+            // 1. overall trade_counter > 0
+            // 2. last backfill attempt time (opts.from) has reached target_time and is behind it
+            // 3. unless target_time is in the future 
+            if (trade_counter && (target_time <= opts.from || target_time > new Date().getTime())) {
               console.log('\ndownload complete!\n')
               process.exit(0)
             }
             else {
-              if (get_trade_retry_count < 5) {
-                console.error('\ngetTrades() returned no trades, retrying with smaller interval.')
+              // Reattempt for an hour, every second !
+              if (get_trade_retry_count < 3600) {
                 get_trade_retry_count++
-                start_time += (target_time - start_time)*0.4
+
+                // Move next start_time one second later
+                marker.to += tb('s', 1).resize('ms').value
+                //start_time += (target_time - start_time)*0.4
+
+                console.error('Attempt:', get_trade_retry_count,'getTrades() returned no trades from', opts.from, ', retrying one second later from', marker.to)
                 setImmediate(getNext)
                 return
               }
@@ -170,7 +196,7 @@ module.exports = function (program, conf) {
             diff = tb(marker.newest_time - newest_time).resize('1h').value
             console.log('\nskipping ' + diff + ' hrs of previously collected data')
           }
-          resume_markers.replaceOne({_id: marker.id}, marker, {upsert: true})
+          resumeMarkersDb.replaceOne({_id: marker.id}, marker, {upsert: true})
             .then(setupNext)
             .catch(function(err){
               if (err) throw err
@@ -234,7 +260,7 @@ module.exports = function (program, conf) {
           marker.to = marker.to ? Math.max(marker.to, cursor) : cursor
           marker.newest_time = Math.max(marker.newest_time, trade.time)
         }
-        return tradesCollection.replaceOne({_id: trade.id}, trade, {upsert: true})
+        return tradesDb.replaceOne({_id: trade.id}, trade, {upsert: true})
       }
     })
 }
