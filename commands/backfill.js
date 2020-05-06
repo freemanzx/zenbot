@@ -44,6 +44,7 @@ module.exports = function (program, conf) {
       var trade_counter = 0
       var day_trade_counter = 0
       var get_trade_retry_count = 0
+      var get_trade_retry_later = 0
       var days_left = cmd.days + 1
       var target_time, start_time
       var mode = exchange.historyScan
@@ -127,15 +128,17 @@ module.exports = function (program, conf) {
               process.exit(0)
             }
             else {
-              // Reattempt for an hour, every second !
-              if (get_trade_retry_count < 3600) {
-                get_trade_retry_count++
+              // Reattempt for two hours, every 1 minute
+              if (get_trade_retry_count < 120) {
+                const delay = tb('m', 1).resize('ms').value
 
+                get_trade_retry_count++
+                get_trade_retry_later += delay;
                 // Move next start_time one second later
-                marker.to += tb('s', 1).resize('ms').value
+                marker.to += delay
                 //start_time += (target_time - start_time)*0.4
 
-                console.error('Attempt:', get_trade_retry_count,'getTrades() returned no trades from', opts.from, ', retrying one second later from', marker.to)
+                console.error('Attempt:', tb('ms', get_trade_retry_later).resize('1m').value, 'minutes later, getTrades() returned no trades from', opts.from, ', retrying ten second later from', marker.to)
                 setImmediate(getNext)
                 return
               }
